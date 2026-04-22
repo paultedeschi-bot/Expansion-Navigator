@@ -11,13 +11,16 @@ import {
   Check,
   Loader2,
   Compass,
+  Plus,
+  X,
+  Users,
 } from "lucide-react";
 
 // ============================================================
-// EXPANSION NAVIGATOR FOR ATLAN CSMs
+// EXPANSION NAVIGATOR FOR CSMs
 // A decision tool for evaluating which AI use case within an
-// account represents the strongest expansion bet for Atlan's
-// Context Layer.
+// account represents the strongest expansion bet for a
+// context layer platform.
 // ============================================================
 
 const DIMENSIONS = [
@@ -25,9 +28,9 @@ const DIMENSIONS = [
     id: "data_foundation",
     name: "Data Foundation Readiness",
     group: "feasibility",
-    short: "Is the underlying data structured enough for Atlan to act on?",
+    short: "Is the underlying data structured enough for a context layer to act on?",
     guidance: {
-      1: "Data is fragmented, ungoverned, lives in shadow tools. Nothing for Atlan to anchor to.",
+      1: "Data is fragmented, ungoverned, lives in shadow tools. Nothing for a context layer to anchor to.",
       3: "Some sources connected and partially documented. Mixed quality across domains.",
       5: "Critical data is in connected sources, well-modeled, with established ownership.",
     },
@@ -58,24 +61,37 @@ const DIMENSIONS = [
     id: "ai_maturity",
     name: "AI Use Case Maturity",
     group: "value",
-    short: "How far along is this team's AI adoption — and how fast does Atlan unlock value?",
+    short: "How far along is this team's AI adoption — and how fast does a context layer unlock value?",
     guidance: {
       1: "Early exploration. AI value still hypothetical. Long path to measurable outcome.",
       3: "Pilots in motion. Some momentum but unproven at scale.",
-      5: "Active production use cases. Atlan slots into a live problem with immediate impact.",
+      5: "Active production use cases. The platform slots into a live problem with immediate impact.",
     },
   },
   {
     id: "expansion_mechanics",
     name: "Expansion Mechanics",
     group: "value",
-    short: "How does winning this team unlock the broader Atlan footprint?",
+    short: "How does winning this team unlock broader platform adoption?",
     guidance: {
       1: "Isolated team. Win stays contained. No pull on other groups or licenses.",
       3: "Some halo potential — adjacent teams may follow, but no clear pull.",
       5: "Strong flywheel. Win activates dormant licenses, creates reference moments, pulls in adjacent teams.",
     },
   },
+];
+
+const POSTURE_OPTIONS = [
+  { value: "advocate", label: "Advocate" },
+  { value: "neutral", label: "Neutral" },
+  { value: "skeptical", label: "Skeptical" },
+  { value: "unknown", label: "Unknown" },
+];
+
+const INFLUENCE_OPTIONS = [
+  { value: "high", label: "High" },
+  { value: "medium", label: "Medium" },
+  { value: "low", label: "Low" },
 ];
 
 // ============================================================
@@ -92,10 +108,28 @@ const EMPTY_ACCOUNT = {
 const emptyScores = () =>
   Object.fromEntries(DIMENSIONS.map((d) => [d.id, { score: 0, rationale: "" }]));
 
+const makeEmptyStakeholder = (id) => ({
+  id,
+  name: "",
+  role: "",
+  posture: "unknown",
+  influence: "medium",
+  scope: "",
+  notes: "",
+});
+
+const EMPTY_STAKEHOLDERS = [
+  makeEmptyStakeholder("sh1"),
+  makeEmptyStakeholder("sh2"),
+];
+
 const EMPTY_USE_CASES = [
   { id: "uc1", team: "", sponsor: "", description: "", state: "pilot", scores: emptyScores() },
   { id: "uc2", team: "", sponsor: "", description: "", state: "pilot", scores: emptyScores() },
 ];
+
+const MAX_STAKEHOLDERS = 5;
+const MIN_STAKEHOLDERS = 1;
 
 // ============================================================
 // COMPONENT
@@ -104,13 +138,14 @@ const EMPTY_USE_CASES = [
 export default function ExpansionNavigator() {
   const [step, setStep] = useState(-1); // -1 = welcome screen
   const [account, setAccount] = useState(EMPTY_ACCOUNT);
+  const [stakeholders, setStakeholders] = useState(EMPTY_STAKEHOLDERS);
   const [useCases, setUseCases] = useState(EMPTY_USE_CASES);
   const [pressureTest, setPressureTest] = useState(null);
   const [brief, setBrief] = useState(null);
   const [loading, setLoading] = useState({ pressure: false, brief: false });
   const [error, setError] = useState(null);
 
-  const steps = ["Account", "Use Cases", "Score", "Pressure Test", "Recommendation"];
+  const steps = ["Account", "Stakeholders", "Use Cases", "Score", "Pressure Test", "Recommendation"];
 
   // ---------- Scoring math ----------
   const scoredCases = useMemo(() => {
@@ -137,6 +172,24 @@ export default function ExpansionNavigator() {
     return sorted[0];
   }, [scoredCases]);
 
+  // ---------- Stakeholder management ----------
+  const addStakeholder = () => {
+    if (stakeholders.length >= MAX_STAKEHOLDERS) return;
+    const newId = `sh${Date.now()}`;
+    setStakeholders([...stakeholders, makeEmptyStakeholder(newId)]);
+  };
+
+  const removeStakeholder = (id) => {
+    if (stakeholders.length <= MIN_STAKEHOLDERS) return;
+    setStakeholders(stakeholders.filter((s) => s.id !== id));
+  };
+
+  const updateStakeholder = (id, field, value) => {
+    setStakeholders(
+      stakeholders.map((s) => (s.id === id ? { ...s, [field]: value } : s))
+    );
+  };
+
   // ---------- AI calls (via Vercel serverless function) ----------
   const callClaude = async (prompt) => {
     const response = await fetch("/api/claude", {
@@ -153,6 +206,15 @@ export default function ExpansionNavigator() {
   };
 
   const buildContextBlock = () => {
+    const stakeholderBlock = stakeholders
+      .filter((s) => s.name || s.role)
+      .map((s) => {
+        const postureLabel = POSTURE_OPTIONS.find((p) => p.value === s.posture)?.label || s.posture;
+        const influenceLabel = INFLUENCE_OPTIONS.find((i) => i.value === s.influence)?.label || s.influence;
+        return `  - ${s.name || "(unnamed)"} — ${s.role || "(no role)"} | Posture: ${postureLabel} | Influence: ${influenceLabel} | Scope: ${s.scope || "(not specified)"} | Notes: ${s.notes || "(none)"}`;
+      })
+      .join("\n");
+
     const usecaseBlock = scoredCases
       .map((uc) => {
         const scoreLines = DIMENSIONS.map(
@@ -173,6 +235,9 @@ ARR: ${account.arr || "(not specified)"}
 Renewal: ${account.renewal || "(not specified)"}
 Strategic context: ${account.context || "(none provided)"}
 
+KEY STAKEHOLDERS:
+${stakeholderBlock || "  (none provided)"}
+
 ${usecaseBlock}`;
   };
 
@@ -180,17 +245,20 @@ ${usecaseBlock}`;
     setError(null);
     setLoading((l) => ({ ...l, pressure: true }));
     try {
-      const prompt = `You are a senior Customer Success leader at Atlan, pressure-testing a CSM's expansion analysis. Be sharp, specific, and constructive — not generic.
+      const prompt = `You are a senior Customer Success leader at a context layer platform company, pressure-testing a CSM's expansion analysis. Be sharp, specific, and constructive — not generic.
 
 ${buildContextBlock()}
 
-Provide your critique in three sections using markdown:
+Provide your critique in four sections using markdown:
 
 ## Inconsistencies in your scoring
 Identify any place where the score doesn't match the rationale, or where two scores feel inconsistent with each other. Be specific — quote the rationale text directly.
 
-## Blind spots
-Surface 2-3 things the CSM may not have considered. Focus on Atlan-specific risks (governance, data foundation, AI use case viability, renewal dynamics, stakeholder gaps).
+## Stakeholder blind spots
+Look at the stakeholder landscape alongside the use case scoring. Surface issues like: missing sponsors, account-wide stakeholders whose posture isn't reflected in the analysis, influence gaps, or skeptical stakeholders whose concerns must be addressed before expansion can proceed. Call out specific people by name.
+
+## Blind spots in the analysis
+Surface 2-3 things the CSM may not have considered. Focus on context-layer-specific risks (governance, data foundation, AI use case viability, renewal dynamics).
 
 ## The skeptical exec rebuttal
 Write the pushback this recommendation would face from a skeptical CFO or CRO. Then add one line on how the CSM should answer it.
@@ -212,7 +280,7 @@ Be direct. Avoid hedging language. This is a working tool, not a polite memo.`;
       const winnerName = winner?.team || "the leading use case";
       const otherName =
         scoredCases.find((c) => c.id !== winner?.id)?.team || "the other use case";
-      const prompt = `You are an Atlan CSM writing a one-page expansion recommendation brief for an internal account review.
+      const prompt = `You are a Customer Success Manager writing a one-page expansion recommendation brief for an internal account review.
 
 ${buildContextBlock()}
 
@@ -230,6 +298,9 @@ One paragraph: which use case to lead with and why.
 
 ## Why Not ${otherName} First
 One paragraph framing the other use case as a follow-on, not a competing path.
+
+## Stakeholder Engagement Plan
+For each key stakeholder named in the input, 1-2 sentences on how to engage them specifically to unlock this expansion. Call out account-wide stakeholders (like AI governance owners) who don't own either use case but whose posture matters.
 
 ## Top 3 Risks
 Numbered list. Be specific to this account, not generic.
@@ -252,6 +323,7 @@ Write with conviction. This is a recommendation, not a discussion.`;
 
   const reset = () => {
     setAccount(EMPTY_ACCOUNT);
+    setStakeholders([makeEmptyStakeholder("sh1"), makeEmptyStakeholder("sh2")]);
     setUseCases([
       { id: "uc1", team: "", sponsor: "", description: "", state: "pilot", scores: emptyScores() },
       { id: "uc2", team: "", sponsor: "", description: "", state: "pilot", scores: emptyScores() },
@@ -355,7 +427,7 @@ Write with conviction. This is a recommendation, not a discussion.`;
               <Compass className="w-5 h-5 text-white" strokeWidth={2} />
             </div>
             <div className="text-xs uppercase tracking-[0.2em] font-mono text-stone-500">
-              For Atlan CSMs
+              For Customer Success Managers
             </div>
           </div>
 
@@ -364,22 +436,22 @@ Write with conviction. This is a recommendation, not a discussion.`;
           </h1>
 
           <p className="text-lg text-stone-600 leading-relaxed mb-10 max-w-xl">
-            A decision tool for Atlan CSMs evaluating which AI use case within an account
-            represents the strongest expansion bet for the Context Layer.
+            A decision tool for CSMs evaluating which AI use case within an account represents the
+            strongest expansion bet for a context layer platform.
           </p>
 
           <div className="grid grid-cols-3 gap-6 mb-12">
-            <Step number="01" label="Account context" />
+            <Step number="01" label="Account & stakeholders" />
             <Step number="02" label="Score 5 dimensions" />
             <Step number="03" label="AI critique & brief" />
           </div>
 
           <div className="border-t border-stone-200 pt-8 mb-10">
             <p className="text-sm text-stone-500 leading-relaxed">
-              Atlan's thesis: AI is only as good as the context behind it. This tool applies that
-              same logic to expansion decisions. Five dimensions — three measuring whether the bet
-              is winnable, two measuring whether it's worth winning. Score each, write your
-              rationale, and let Claude pressure-test the analysis.
+              The thesis: AI is only as good as the context behind it. This tool applies that same
+              logic to expansion decisions. Five dimensions — three measuring whether the bet is
+              winnable, two measuring whether it's worth winning. Score each, write your rationale,
+              and let the tool pressure-test the analysis against the stakeholder landscape.
             </p>
           </div>
 
@@ -420,7 +492,7 @@ Write with conviction. This is a recommendation, not a discussion.`;
                 Expansion Navigator
               </h1>
               <p className="text-xs text-stone-500 mt-1 tracking-wide uppercase">
-                For Atlan CSMs
+                For CSMs
               </p>
             </div>
           </button>
@@ -501,7 +573,7 @@ Write with conviction. This is a recommendation, not a discussion.`;
                     onChange={(e) => setAccount({ ...account, context: e.target.value })}
                     rows={6}
                     className="input"
-                    placeholder="Customer maturity, adoption health, current escalations, key stakeholders, AI initiatives in flight, license utilization, anything that shapes the expansion judgment..."
+                    placeholder="Customer maturity, adoption health, current escalations, AI initiatives in flight, license utilization, anything that shapes the expansion judgment..."
                   />
                 </Field>
               </div>
@@ -510,13 +582,129 @@ Write with conviction. This is a recommendation, not a discussion.`;
           </div>
         )}
 
-        {/* STEP 1 — USE CASES */}
+        {/* STEP 1 — STAKEHOLDERS */}
         {step === 1 && (
           <div>
             <SectionHeader
               eyebrow="Step 02"
+              title="Stakeholder landscape"
+              description="Who are the key people across this account whose posture affects the expansion decision? Include stakeholders who don't own a specific use case but influence the broader motion — AI governance owners, executive sponsors, skeptics."
+            />
+            <div className="mt-8 space-y-4">
+              {stakeholders.map((s, idx) => (
+                <div
+                  key={s.id}
+                  className="border border-stone-200 bg-white rounded-lg p-6 relative"
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-full bg-stone-100 flex items-center justify-center">
+                        <Users className="w-3.5 h-3.5 text-stone-600" />
+                      </div>
+                      <span className="text-xs font-mono text-stone-400 uppercase tracking-wider">
+                        Stakeholder {idx + 1}
+                      </span>
+                    </div>
+                    {stakeholders.length > MIN_STAKEHOLDERS && (
+                      <button
+                        onClick={() => removeStakeholder(s.id)}
+                        className="text-xs text-stone-400 hover:text-rose-600 flex items-center gap-1"
+                      >
+                        <X className="w-3 h-3" />
+                        Remove
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <Field label="Name">
+                      <input
+                        value={s.name}
+                        onChange={(e) => updateStakeholder(s.id, "name", e.target.value)}
+                        className="input"
+                        placeholder="e.g. Jordan Chen"
+                      />
+                    </Field>
+                    <Field label="Role / title">
+                      <input
+                        value={s.role}
+                        onChange={(e) => updateStakeholder(s.id, "role", e.target.value)}
+                        className="input"
+                        placeholder="e.g. VP, AI & Data Products"
+                      />
+                    </Field>
+                    <Field label="Posture toward the platform">
+                      <select
+                        value={s.posture}
+                        onChange={(e) => updateStakeholder(s.id, "posture", e.target.value)}
+                        className="input"
+                      >
+                        {POSTURE_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Influence">
+                      <select
+                        value={s.influence}
+                        onChange={(e) => updateStakeholder(s.id, "influence", e.target.value)}
+                        className="input"
+                      >
+                        {INFLUENCE_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    <div className="col-span-2">
+                      <Field label="Scope of ownership">
+                        <input
+                          value={s.scope}
+                          onChange={(e) => updateStakeholder(s.id, "scope", e.target.value)}
+                          className="input"
+                          placeholder="e.g. Account-wide AI governance, Finance use case, etc."
+                        />
+                      </Field>
+                    </div>
+                    <div className="col-span-2">
+                      <Field label="Notes — concerns, history, what matters to them">
+                        <textarea
+                          value={s.notes}
+                          onChange={(e) => updateStakeholder(s.id, "notes", e.target.value)}
+                          rows={2}
+                          className="input"
+                          placeholder="Their worldview, hot buttons, prior engagement, what they need to see to move..."
+                        />
+                      </Field>
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              {stakeholders.length < MAX_STAKEHOLDERS && (
+                <button
+                  onClick={addStakeholder}
+                  className="w-full border border-dashed border-stone-300 rounded-lg py-4 text-sm text-stone-500 hover:text-stone-900 hover:border-stone-900 flex items-center justify-center gap-2 transition"
+                >
+                  <Plus className="w-4 h-4" />
+                  Add stakeholder
+                </button>
+              )}
+            </div>
+            <NextBack onBack={() => setStep(0)} onNext={() => setStep(2)} />
+          </div>
+        )}
+
+        {/* STEP 2 — USE CASES */}
+        {step === 2 && (
+          <div>
+            <SectionHeader
+              eyebrow="Step 03"
               title="Candidate AI use cases"
-              description="The expansion paths under consideration. Each will be scored against the same five Atlan-specific dimensions."
+              description="The expansion paths under consideration. Each will be scored against the same five context-layer dimensions."
             />
             <div className="grid grid-cols-2 gap-6 mt-8">
               {useCases.map((uc, idx) => (
@@ -560,7 +748,7 @@ Write with conviction. This is a recommendation, not a discussion.`;
                       }}
                       rows={3}
                       className="input"
-                      placeholder="What is this team trying to do with AI, and where does Atlan fit?"
+                      placeholder="What is this team trying to do with AI, and where does the platform fit?"
                     />
                   </Field>
                   <Field label="Current state">
@@ -582,17 +770,17 @@ Write with conviction. This is a recommendation, not a discussion.`;
                 </div>
               ))}
             </div>
-            <NextBack onBack={() => setStep(0)} onNext={() => setStep(2)} />
+            <NextBack onBack={() => setStep(1)} onNext={() => setStep(3)} />
           </div>
         )}
 
-        {/* STEP 2 — SCORE */}
-        {step === 2 && (
+        {/* STEP 3 — SCORE */}
+        {step === 3 && (
           <div>
             <SectionHeader
-              eyebrow="Step 03"
+              eyebrow="Step 04"
               title="Score each use case"
-              description="Five Atlan-specific dimensions, grouped by feasibility (can we win it?) and value (is it worth winning?). Score 1-5 with a one-line rationale."
+              description="Five context-layer dimensions, grouped by feasibility (can we win it?) and value (is it worth winning?). Score 1-5 with a one-line rationale."
             />
             <div className="mt-8 space-y-8">
               {DIMENSIONS.map((dim) => (
@@ -729,17 +917,17 @@ Write with conviction. This is a recommendation, not a discussion.`;
               ))}
             </div>
 
-            <NextBack onBack={() => setStep(1)} onNext={() => setStep(3)} />
+            <NextBack onBack={() => setStep(2)} onNext={() => setStep(4)} />
           </div>
         )}
 
-        {/* STEP 3 — PRESSURE TEST */}
-        {step === 3 && (
+        {/* STEP 4 — PRESSURE TEST */}
+        {step === 4 && (
           <div>
             <SectionHeader
-              eyebrow="Step 04"
+              eyebrow="Step 05"
               title="AI pressure test"
-              description="Claude reviews your scoring and rationale. Looks for inconsistencies, surfaces blind spots, and writes the skeptical exec rebuttal you'd face."
+              description="Claude reviews your scoring, rationale, and stakeholder landscape. Looks for inconsistencies, stakeholder blind spots, and writes the skeptical exec rebuttal you'd face."
             />
 
             {!pressureTest && !loading.pressure && (
@@ -751,8 +939,8 @@ Write with conviction. This is a recommendation, not a discussion.`;
                   Pressure-test your analysis
                 </h3>
                 <p className="text-sm text-stone-600 max-w-md mx-auto mb-6">
-                  Claude will review your scoring, flag inconsistencies, surface blind spots, and
-                  write the skeptical exec rebuttal.
+                  Claude will review your scoring, the stakeholder landscape, flag
+                  inconsistencies, surface blind spots, and write the skeptical exec rebuttal.
                 </p>
                 <button
                   onClick={runPressureTest}
@@ -806,18 +994,18 @@ Write with conviction. This is a recommendation, not a discussion.`;
             )}
 
             <NextBack
-              onBack={() => setStep(2)}
-              onNext={() => setStep(4)}
+              onBack={() => setStep(3)}
+              onNext={() => setStep(5)}
               nextLabel="Generate recommendation"
             />
           </div>
         )}
 
-        {/* STEP 4 — RECOMMENDATION */}
-        {step === 4 && (
+        {/* STEP 5 — RECOMMENDATION */}
+        {step === 5 && (
           <div>
             <SectionHeader
-              eyebrow="Step 05"
+              eyebrow="Step 06"
               title="Recommendation brief"
               description="A one-page expansion brief — the kind of thing a CSM walks into a deal review with."
             />
@@ -829,8 +1017,8 @@ Write with conviction. This is a recommendation, not a discussion.`;
                 </div>
                 <h3 className="font-serif text-lg text-stone-900 mb-2">Generate the brief</h3>
                 <p className="text-sm text-stone-600 max-w-md mx-auto mb-6">
-                  Based on your scoring, rationale, and the pressure test — Claude writes the
-                  recommendation brief.
+                  Based on your scoring, rationale, stakeholder landscape, and the pressure test —
+                  Claude writes the recommendation brief.
                 </p>
                 {winner && (
                   <p className="text-xs text-stone-500 mb-6">
@@ -889,7 +1077,7 @@ Write with conviction. This is a recommendation, not a discussion.`;
               </div>
             )}
 
-            <NextBack onBack={() => setStep(3)} hideNext />
+            <NextBack onBack={() => setStep(4)} hideNext />
           </div>
         )}
       </main>
@@ -901,7 +1089,7 @@ Write with conviction. This is a recommendation, not a discussion.`;
             <span className="font-serif text-stone-700">Expansion Navigator</span> · Built as a CSM
             thinking partner, not a decision-maker
           </div>
-          <div className="font-mono">v1.0</div>
+          <div className="font-mono">v1.1</div>
         </div>
       </footer>
 
